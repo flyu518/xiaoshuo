@@ -22,6 +22,8 @@ export function ListNovelCaches():Promise<Array<main.NovelCacheEntry>>;
 
 export function LoadState():Promise<main.AppState>;
 
+export function ReadChapter(arg1:main.ChapterReadRequest):Promise<main.ChapterReadResult>;
+
 export function SaveNovel(arg1:main.Novel):Promise<main.AppState>;
 
 export function SaveRule(arg1:main.SiteRule):Promise<main.AppState>;

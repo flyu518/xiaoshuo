@@ -4,6 +4,7 @@ import { EventsOn } from '../wailsjs/runtime/runtime'
 import * as Backend from '../wailsjs/go/main/App.js'
 import { matchChapterByKeywords, parseKeywordInput } from './chapterFilters.js'
 import { filterNovels } from './novelListFilters.js'
+import { findChapterIndex, getChapterNeighbors, normalizeNovelWorkspaceView } from './novelReader.js'
 import { normalizeWorkspaceTab, workspaceTabs } from './workspaceTabs.js'
 import { getSavedWorkspaceTab, saveWorkspaceTab } from './uiPreferences.js'
 
@@ -53,6 +54,20 @@ const listFilters = reactive({
   search: '',
   ruleId: '',
 })
+const novelWorkspace = reactive({
+  activeNovelId: '',
+  view: normalizeNovelWorkspaceView('directory'),
+  directoryAnalysis: null,
+  activeChapterUrl: '',
+  chapterTitle: '',
+  chapterContent: '',
+  directorySearch: '',
+  currentPage: 1,
+  pageSize: 80,
+  loadingDirectory: false,
+  loadingChapter: false,
+  error: '',
+})
 const uiState = reactive({
   activeTab: getSavedWorkspaceTab(),
   helpOpen: {},
@@ -61,6 +76,7 @@ const uiState = reactive({
 let messageTimer = null
 
 const selectedNovel = computed(() => state.novels.find((novel) => novel.id === exportForm.novelId) ?? null)
+const novelWorkspaceNovel = computed(() => state.novels.find((novel) => novel.id === novelWorkspace.activeNovelId) ?? selectedNovel.value ?? null)
 const selectedRule = computed(() => {
   const ruleID = novelForm.ruleId || selectedNovel.value?.ruleId || ''
   return state.rules.find((rule) => rule.id === ruleID) ?? null
@@ -104,6 +120,29 @@ const currentPageAllSelected = computed(() => (
   pagedChapters.value.every((chapter) => selectedChapterSet.value.has(chapter.url))
 ))
 const filteredNovels = computed(() => filterNovels(state.novels, listFilters.search, listFilters.ruleId))
+const novelWorkspaceChapters = computed(() => novelWorkspace.directoryAnalysis?.chapters ?? [])
+const novelWorkspaceFilteredChapters = computed(() => {
+  const keyword = novelWorkspace.directorySearch.trim().toLowerCase()
+  if (!keyword) {
+    return novelWorkspaceChapters.value
+  }
+  return novelWorkspaceChapters.value.filter((chapter) => {
+    const text = `${chapter.title} ${chapter.url}`.toLowerCase()
+    return text.includes(keyword)
+  })
+})
+const novelWorkspaceTotalPages = computed(() => {
+  if (novelWorkspaceFilteredChapters.value.length === 0) {
+    return 1
+  }
+  return Math.max(1, Math.ceil(novelWorkspaceFilteredChapters.value.length / novelWorkspace.pageSize))
+})
+const novelWorkspacePagedChapters = computed(() => {
+  const startIndex = (novelWorkspace.currentPage - 1) * novelWorkspace.pageSize
+  return novelWorkspaceFilteredChapters.value.slice(startIndex, startIndex + novelWorkspace.pageSize)
+})
+const novelWorkspaceCurrentChapterIndex = computed(() => findChapterIndex(novelWorkspaceChapters.value, novelWorkspace.activeChapterUrl))
+const novelWorkspaceChapterNeighbors = computed(() => getChapterNeighbors(novelWorkspaceChapters.value, novelWorkspace.activeChapterUrl))
 
 const zh = {
   appTitle: '\u5c0f\u8bf4\u63d0\u53d6\u5668',
@@ -149,6 +188,19 @@ const zh = {
   saveNovel: '\u4fdd\u5b58\u5c0f\u8bf4',
   savingNovel: '\u4fdd\u5b58\u4e2d...',
   deleteNovel: '\u5220\u9664\u5c0f\u8bf4',
+  directoryWorkspace: '\u76ee\u5f55\u9884\u89c8',
+  openDirectory: '\u6253\u5f00\u76ee\u5f55',
+  loadingDirectory: '\u76ee\u5f55\u52a0\u8f7d\u4e2d...',
+  directorySearch: '\u76ee\u5f55\u641c\u7d22',
+  directorySearchPlaceholder: '\u6309\u7ae0\u8282\u540d\u79f0\u6216\u94fe\u63a5\u641c\u7d22',
+  directoryChapterCount: '\u7ae0\u8282',
+  directoryEmpty: '\u5148\u70b9\u201c\u6253\u5f00\u76ee\u5f55\u201d\uff0c\u8fd9\u91cc\u5c31\u4f1a\u663e\u793a\u7ae0\u8282\u5217\u8868\u3002',
+  openChapterHint: '\u5728\u76ee\u5f55\u91cc\u70b9\u4e00\u7ae0\uff0c\u53f3\u4fa7\u5c31\u4f1a\u663e\u793a\u6b63\u6587\u3002',
+  chapterReader: '\u6b63\u6587\u9605\u8bfb',
+  loadingChapter: '\u6b63\u6587\u52a0\u8f7d\u4e2d...',
+  backToDirectory: '\u8fd4\u56de\u76ee\u5f55',
+  previousChapter: '\u4e0a\u4e00\u7ae0',
+  nextChapter: '\u4e0b\u4e00\u7ae0',
   ruleId: '\u89c4\u5219 ID',
   ruleIdPlaceholder: '\u7559\u7a7a\u81ea\u52a8\u751f\u6210',
   ruleName: '\u89c4\u5219\u540d\u79f0',
@@ -305,6 +357,10 @@ watch(
 )
 watch(() => exportForm.appliedKeywordInput, ensurePageInRange)
 watch(() => exportForm.selectedChapterUrls, ensurePageInRange)
+watch(() => novelWorkspace.directorySearch, () => {
+  novelWorkspace.currentPage = 1
+})
+watch(() => [novelWorkspace.directoryAnalysis, novelWorkspace.currentPage, novelWorkspace.view], ensureNovelWorkspacePageInRange)
 watch(() => uiState.activeTab, (tab) => saveWorkspaceTab(tab))
 
 function createEmptyNovel() {
@@ -678,6 +734,120 @@ function ensurePageInRange() {
   }
 }
 
+function ensureNovelWorkspacePageInRange() {
+  if (novelWorkspace.currentPage > novelWorkspaceTotalPages.value) {
+    novelWorkspace.currentPage = novelWorkspaceTotalPages.value
+  }
+  if (novelWorkspace.currentPage < 1) {
+    novelWorkspace.currentPage = 1
+  }
+}
+
+function setNovelWorkspaceNovel(novelId, options = {}) {
+  novelWorkspace.activeNovelId = novelId
+
+  if (!options.resetWorkspace) {
+    return
+  }
+
+  novelWorkspace.view = normalizeNovelWorkspaceView('directory')
+  novelWorkspace.directoryAnalysis = null
+  novelWorkspace.activeChapterUrl = ''
+  novelWorkspace.chapterTitle = ''
+  novelWorkspace.chapterContent = ''
+  novelWorkspace.directorySearch = ''
+  novelWorkspace.currentPage = 1
+  novelWorkspace.loadingDirectory = false
+  novelWorkspace.loadingChapter = false
+  novelWorkspace.error = ''
+}
+
+function resetNovelWorkspace() {
+  setNovelWorkspaceNovel('', { resetWorkspace: true })
+}
+
+async function openNovelDirectory() {
+  if (!hasWailsRuntime()) {
+    novelWorkspace.error = zh.browserMode
+    return
+  }
+
+  const novel = novelWorkspaceNovel.value
+  if (!novel) {
+    novelWorkspace.error = zh.noNovelSelected
+    return
+  }
+
+  novelWorkspace.activeNovelId = novel.id
+  novelWorkspace.loadingDirectory = true
+  novelWorkspace.error = ''
+  try {
+    const analysis = await Backend.AnalyzeCatalog({ novelId: novel.id })
+    novelWorkspace.directoryAnalysis = analysis
+    novelWorkspace.view = normalizeNovelWorkspaceView('directory')
+    novelWorkspace.directorySearch = ''
+    novelWorkspace.currentPage = 1
+    novelWorkspace.activeChapterUrl = ''
+    novelWorkspace.chapterTitle = ''
+    novelWorkspace.chapterContent = ''
+  } catch (error) {
+    novelWorkspace.error = error?.message ?? String(error)
+  } finally {
+    novelWorkspace.loadingDirectory = false
+  }
+}
+
+async function openNovelChapter(chapter) {
+  if (!hasWailsRuntime()) {
+    novelWorkspace.error = zh.browserMode
+    return
+  }
+
+  const novel = novelWorkspaceNovel.value
+  if (!novel) {
+    novelWorkspace.error = zh.noNovelSelected
+    return
+  }
+
+  novelWorkspace.activeNovelId = novel.id
+  novelWorkspace.loadingChapter = true
+  novelWorkspace.error = ''
+  try {
+    const result = await Backend.ReadChapter({
+      novelId: novel.id,
+      chapterUrl: chapter.url,
+      chapterTitle: chapter.title,
+    })
+    novelWorkspace.activeChapterUrl = chapter.url
+    novelWorkspace.chapterTitle = result.chapterTitle || chapter.title || ''
+    novelWorkspace.chapterContent = result.content || ''
+    novelWorkspace.view = normalizeNovelWorkspaceView('reading')
+
+    const pageIndex = novelWorkspaceFilteredChapters.value.findIndex((item) => item.url === chapter.url)
+    if (pageIndex >= 0) {
+      novelWorkspace.currentPage = Math.floor(pageIndex / novelWorkspace.pageSize) + 1
+    }
+  } catch (error) {
+    novelWorkspace.error = error?.message ?? String(error)
+  } finally {
+    novelWorkspace.loadingChapter = false
+  }
+}
+
+async function openNovelChapterByDirection(direction) {
+  const target = direction < 0
+    ? novelWorkspaceChapterNeighbors.value.previous
+    : novelWorkspaceChapterNeighbors.value.next
+  if (!target) {
+    return
+  }
+  await openNovelChapter(target)
+}
+
+function backToNovelDirectory() {
+  novelWorkspace.view = normalizeNovelWorkspaceView('directory')
+}
+
 async function refreshState() {
   if (!hasWailsRuntime()) {
     state.loading = false
@@ -707,7 +877,7 @@ function pickNovel(novel) {
   if (!novel) {
     return
   }
-  syncSelectedNovel(novel, { resetAnalysis: true, clearFeedback: true })
+  syncSelectedNovel(novel, { resetAnalysis: true, clearFeedback: true, resetWorkspace: true })
 }
 
 function pickRule(rule) {
@@ -728,10 +898,12 @@ function syncSelectedNovel(novel, options = {}) {
   const {
     resetAnalysis = false,
     clearFeedback = false,
+    resetWorkspace = false,
   } = options
 
   exportForm.novelId = novel.id
   applyNovelToForm(novel)
+  setNovelWorkspaceNovel(novel.id, { resetWorkspace })
 
   const rule = state.rules.find((item) => item.id === novel.ruleId)
   if (rule) {
@@ -1205,7 +1377,8 @@ function toggleHelp(key) {
       </template>
 
       <template v-else-if="uiState.activeTab === 'novels'">
-        <section class="two-col">
+        <section class="novel-layout">
+          <div class="novel-side">
           <div class="panel scroll-panel">
             <div class="panel-head">
               <h2>{{ zh.novels }}</h2>
@@ -1278,13 +1451,116 @@ function toggleHelp(key) {
                 </label>
               </div>
 
-              <div class="actions sticky-actions">
-                <button type="button" class="primary" :disabled="state.savingNovel" @click="saveNovel">
-                  {{ state.savingNovel ? zh.savingNovel : zh.saveNovel }}
-                </button>
-                <button type="button" class="ghost danger" :disabled="!novelForm.id" @click="removeNovel">
-                  {{ zh.deleteNovel }}
-                </button>
+            <div class="actions sticky-actions">
+              <button type="button" class="primary" :disabled="state.savingNovel" @click="saveNovel">
+                {{ state.savingNovel ? zh.savingNovel : zh.saveNovel }}
+              </button>
+              <button type="button" class="ghost danger" :disabled="!novelForm.id" @click="removeNovel">
+                {{ zh.deleteNovel }}
+              </button>
+            </div>
+            </div>
+          </div>
+          </div>
+
+          <div class="novel-workspace">
+            <div class="panel scroll-panel novel-directory-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>{{ zh.directoryWorkspace }}</h2>
+                  <span v-if="novelWorkspaceNovel">{{ novelWorkspaceNovel.title }}</span>
+                </div>
+                <div class="actions compact">
+                  <button type="button" class="ghost" :disabled="!novelWorkspaceNovel || novelWorkspace.loadingDirectory" @click="openNovelDirectory">
+                    {{ novelWorkspace.loadingDirectory ? zh.loadingDirectory : zh.openDirectory }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="panel-scroll-body">
+                <p v-if="!novelWorkspaceNovel" class="empty">{{ zh.noNovelSelected }}</p>
+                <p v-else-if="novelWorkspace.loadingDirectory" class="empty">{{ zh.loadingDirectory }}</p>
+                <template v-else-if="novelWorkspace.directoryAnalysis">
+                  <label class="field novel-directory-search">
+                    <span>{{ zh.directorySearch }}</span>
+                    <input v-model="novelWorkspace.directorySearch" :placeholder="zh.directorySearchPlaceholder" />
+                  </label>
+
+                  <div class="preview-head compact">
+                    <p class="preview-summary">
+                      <strong>{{ zh.directoryChapterCount }}：{{ novelWorkspaceFilteredChapters.length }} / {{ novelWorkspaceChapters.length }}</strong>
+                      <span>{{ zh.pageStatus }} {{ novelWorkspace.currentPage }} / {{ novelWorkspaceTotalPages }}</span>
+                    </p>
+                  </div>
+
+                  <p v-if="novelWorkspaceFilteredChapters.length === 0" class="empty">{{ zh.directoryFilteredEmpty }}</p>
+                  <div v-else class="chapter-list novel-directory-list">
+                    <button
+                      v-for="(chapter, index) in novelWorkspacePagedChapters"
+                      :key="chapter.url"
+                      type="button"
+                      class="chapter-card selectable novel-directory-item"
+                      :class="{
+                        matched: chapter.cached,
+                        active: novelWorkspace.activeChapterUrl === chapter.url,
+                      }"
+                      @click="openNovelChapter(chapter)"
+                    >
+                      <label class="chapter-check">
+                        <input type="radio" :checked="novelWorkspace.activeChapterUrl === chapter.url" readonly />
+                        <strong class="chapter-title">
+                          {{ (novelWorkspace.currentPage - 1) * novelWorkspace.pageSize + index + 1 }}. {{ chapter.title }}
+                          <small v-if="chapter.cached" class="match-badge cache-badge">{{ zh.cachedBadge }}</small>
+                        </strong>
+                      </label>
+                      <small class="chapter-url">{{ chapter.url }}</small>
+                    </button>
+                  </div>
+
+                  <div class="actions compact chapter-page-actions">
+                    <button type="button" class="ghost small-btn" :disabled="novelWorkspace.currentPage <= 1" @click="novelWorkspace.currentPage -= 1">
+                      {{ zh.previousPage }}
+                    </button>
+                    <span>{{ zh.pageStatus }} {{ novelWorkspace.currentPage }} / {{ novelWorkspaceTotalPages }}</span>
+                    <button type="button" class="ghost small-btn" :disabled="novelWorkspace.currentPage >= novelWorkspaceTotalPages" @click="novelWorkspace.currentPage += 1">
+                      {{ zh.nextPage }}
+                    </button>
+                  </div>
+                </template>
+                <p v-else class="empty">{{ zh.directoryEmpty }}</p>
+                <p v-if="novelWorkspace.error" class="error-inline">{{ novelWorkspace.error }}</p>
+              </div>
+            </div>
+
+            <div class="panel scroll-panel novel-reading-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>{{ zh.chapterReader }}</h2>
+                  <span v-if="novelWorkspace.chapterTitle">{{ novelWorkspace.chapterTitle }}</span>
+                </div>
+                <div class="actions compact">
+                  <button type="button" class="ghost" :disabled="!novelWorkspace.directoryAnalysis || novelWorkspace.loadingChapter || novelWorkspaceCurrentChapterIndex <= 0" @click="openNovelChapterByDirection(-1)">
+                    {{ zh.previousChapter }}
+                  </button>
+                  <button type="button" class="ghost" :disabled="!novelWorkspace.directoryAnalysis || novelWorkspace.loadingChapter || novelWorkspaceCurrentChapterIndex < 0 || novelWorkspaceCurrentChapterIndex >= novelWorkspaceChapters.length - 1" @click="openNovelChapterByDirection(1)">
+                    {{ zh.nextChapter }}
+                  </button>
+                  <button type="button" class="ghost" :disabled="novelWorkspace.view !== 'reading'" @click="backToNovelDirectory">
+                    {{ zh.backToDirectory }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="panel-scroll-body novel-reading-body">
+                <p v-if="!novelWorkspaceNovel" class="empty">{{ zh.noNovelSelected }}</p>
+                <p v-else-if="novelWorkspace.loadingChapter" class="empty">{{ zh.loadingChapter }}</p>
+                <template v-else-if="novelWorkspace.view === 'reading' && novelWorkspace.chapterContent">
+                  <div class="novel-reading-meta">
+                    <strong>{{ novelWorkspace.chapterTitle }}</strong>
+                  </div>
+                  <pre class="novel-reading-content">{{ novelWorkspace.chapterContent }}</pre>
+                </template>
+                <p v-else class="empty">{{ zh.openChapterHint }}</p>
               </div>
             </div>
           </div>

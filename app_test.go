@@ -395,3 +395,64 @@ func TestApplyTextCleanupRules_SupportsRegexRules(t *testing.T) {
 		t.Fatalf("expected only first regex replacement, got %q", output)
 	}
 }
+func TestReadChapter_UsesChapterCache(t *testing.T) {
+	tempDir := t.TempDir()
+	app := &App{ctx: context.Background(), configDir: tempDir}
+
+	if err := app.writeChapterCache("site-a", "https://example.com/chapter-1", "cached text"); err != nil {
+		t.Fatalf("writeChapterCache failed: %v", err)
+	}
+
+	result, err := app.ReadChapter(ChapterReadRequest{
+		RuleID:       "site-a",
+		ChapterURL:   "https://example.com/chapter-1",
+		ChapterTitle: "Chapter 1",
+	})
+	if err != nil {
+		t.Fatalf("ReadChapter failed: %v", err)
+	}
+	if !result.Cached || result.Content != "cached text" {
+		t.Fatalf("unexpected read result: %+v", result)
+	}
+}
+
+func TestReadChapter_RejectsEmptyChapterURL(t *testing.T) {
+	app := &App{ctx: context.Background(), configDir: t.TempDir()}
+
+	_, err := app.ReadChapter(ChapterReadRequest{RuleID: "site-a"})
+	if err == nil {
+		t.Fatal("expected error for empty chapter URL")
+	}
+}
+
+func TestReadChapter_UsesNovelBindingAndCache(t *testing.T) {
+	tempDir := t.TempDir()
+	app := &App{
+		ctx:        context.Background(),
+		configDir:  tempDir,
+		rulesPath:  filepath.Join(tempDir, "rules.json"),
+		novelsPath: filepath.Join(tempDir, "novels.json"),
+	}
+
+	if err := app.saveRules([]SiteRule{{ID: "site-a", Name: "Site A"}}); err != nil {
+		t.Fatalf("saveRules failed: %v", err)
+	}
+	if err := app.saveNovels([]Novel{{ID: "novel-1", Title: "Novel One", CatalogURL: "https://example.com/catalog", RuleID: "site-a"}}); err != nil {
+		t.Fatalf("saveNovels failed: %v", err)
+	}
+	if err := app.writeChapterCache("site-a", "https://example.com/chapter-1", "cached text"); err != nil {
+		t.Fatalf("writeChapterCache failed: %v", err)
+	}
+
+	result, err := app.ReadChapter(ChapterReadRequest{
+		NovelID:      "novel-1",
+		ChapterURL:   "https://example.com/chapter-1",
+		ChapterTitle: "Chapter 1",
+	})
+	if err != nil {
+		t.Fatalf("ReadChapter failed: %v", err)
+	}
+	if result.RuleID != "site-a" || result.NovelTitle != "Novel One" || !result.Cached || result.Content != "cached text" {
+		t.Fatalf("unexpected read result: %+v", result)
+	}
+}

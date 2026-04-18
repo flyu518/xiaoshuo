@@ -243,6 +243,48 @@ export namespace main {
 	        this.novelId = source["novelId"];
 	    }
 	}
+	export class ChapterReadRequest {
+	    catalogUrl: string;
+	    ruleId: string;
+	    novelId: string;
+	    chapterUrl: string;
+	    chapterTitle: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChapterReadRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.catalogUrl = source["catalogUrl"];
+	        this.ruleId = source["ruleId"];
+	        this.novelId = source["novelId"];
+	        this.chapterUrl = source["chapterUrl"];
+	        this.chapterTitle = source["chapterTitle"];
+	    }
+	}
+	export class ChapterReadResult {
+	    ruleId: string;
+	    novelTitle: string;
+	    chapterTitle: string;
+	    chapterUrl: string;
+	    content: string;
+	    cached: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChapterReadResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ruleId = source["ruleId"];
+	        this.novelTitle = source["novelTitle"];
+	        this.chapterTitle = source["chapterTitle"];
+	        this.chapterUrl = source["chapterUrl"];
+	        this.content = source["content"];
+	        this.cached = source["cached"];
+	    }
+	}
 	export class ExportFailure {
 	    index: number;
 	    title: string;
