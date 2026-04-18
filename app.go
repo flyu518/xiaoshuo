@@ -107,6 +107,23 @@ type ExportRequest struct {
 	SkipFilteredTitle   bool     `json:"skipFilteredTitle"`
 }
 
+type ChapterReadRequest struct {
+	CatalogURL   string `json:"catalogUrl"`
+	RuleID       string `json:"ruleId"`
+	NovelID      string `json:"novelId"`
+	ChapterURL   string `json:"chapterUrl"`
+	ChapterTitle string `json:"chapterTitle"`
+}
+
+type ChapterReadResult struct {
+	RuleID       string `json:"ruleId"`
+	NovelTitle   string `json:"novelTitle"`
+	ChapterTitle string `json:"chapterTitle"`
+	ChapterURL   string `json:"chapterUrl"`
+	Content      string `json:"content"`
+	Cached       bool   `json:"cached"`
+}
+
 type ExportFailure struct {
 	Index   int    `json:"index"`
 	Title   string `json:"title"`
@@ -259,6 +276,79 @@ func (a *App) AnalyzeCatalog(req CatalogRequest) (*CatalogAnalysis, error) {
 		return nil, errors.New("当前目录地址与所选规则不匹配，请切换规则或更换目录地址")
 	}
 	return a.analyzeCatalog(rule, req.CatalogURL)
+}
+
+func (a *App) ReadChapter(req ChapterReadRequest) (*ChapterReadResult, error) {
+	chapterURL := strings.TrimSpace(req.ChapterURL)
+	if chapterURL == "" {
+		return nil, errors.New("chapter URL is required")
+	}
+
+	chapter := CatalogChapter{
+		Title: strings.TrimSpace(req.ChapterTitle),
+		URL:   chapterURL,
+	}
+
+	var (
+		rule       *SiteRule
+		novelTitle string
+		err        error
+	)
+
+	if strings.TrimSpace(req.NovelID) != "" {
+		novel, resolvedRule, err := a.resolveNovel(req.NovelID)
+		if err != nil {
+			return nil, err
+		}
+		rule = resolvedRule
+		novelTitle = novel.Title
+		if content, found, err := a.readChapterCache(rule.ID, chapter.URL); err != nil {
+			return nil, err
+		} else if found && strings.TrimSpace(content) != "" {
+			return &ChapterReadResult{
+				RuleID:       rule.ID,
+				NovelTitle:   novelTitle,
+				ChapterTitle: chapter.Title,
+				ChapterURL:   chapter.URL,
+				Content:      content,
+				Cached:       true,
+			}, nil
+		}
+	} else {
+		if ruleID := strings.TrimSpace(req.RuleID); ruleID != "" {
+			if content, found, err := a.readChapterCache(ruleID, chapter.URL); err != nil {
+				return nil, err
+			} else if found && strings.TrimSpace(content) != "" {
+				return &ChapterReadResult{
+					RuleID:       ruleID,
+					NovelTitle:   novelTitle,
+					ChapterTitle: chapter.Title,
+					ChapterURL:   chapter.URL,
+					Content:      content,
+					Cached:       true,
+				}, nil
+			}
+		}
+
+		rule, err = a.resolveRule(req.RuleID, req.CatalogURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	content, _, cached, err := a.extractChapterWithCache(rule, chapter, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChapterReadResult{
+		RuleID:       rule.ID,
+		NovelTitle:   novelTitle,
+		ChapterTitle: chapter.Title,
+		ChapterURL:   chapter.URL,
+		Content:      content,
+		Cached:       cached,
+	}, nil
 }
 
 func (a *App) markCachedChapters(analysis *CatalogAnalysis, novelID, ruleID string) error {
