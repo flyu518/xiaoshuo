@@ -42,6 +42,10 @@ export function LoadState() {
   return window['go']['main']['App']['LoadState']();
 }
 
+export function ReadChapter(arg1) {
+  return window['go']['main']['App']['ReadChapter'](arg1);
+}
+
 export function SaveNovel(arg1) {
   return window['go']['main']['App']['SaveNovel'](arg1);
 }

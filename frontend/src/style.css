@@ -547,6 +547,92 @@ button:disabled {
   align-items: stretch;
 }
 
+.novel-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.08fr);
+  gap: 20px;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.novel-side {
+  display: grid;
+  gap: 20px;
+  min-height: 0;
+}
+
+.novel-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.novel-side > .panel + .panel,
+.novel-workspace > .panel + .panel {
+  margin-top: 0;
+}
+
+.novel-directory-panel,
+.novel-reading-panel {
+  min-height: 0;
+}
+
+.novel-directory-search {
+  margin-bottom: 12px;
+}
+
+.novel-directory-list {
+  max-height: none;
+  overflow: visible;
+}
+
+.novel-directory-item {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.novel-directory-item.active {
+  border-color: rgba(30, 93, 84, 0.45);
+  background: linear-gradient(135deg, #e7f3ef, #fffdf8);
+  box-shadow: 0 10px 24px rgba(30, 93, 84, 0.08);
+}
+
+.chapter-page-actions {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.chapter-page-actions span {
+  color: #6b6153;
+}
+
+.novel-reading-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.novel-reading-meta {
+  padding: 12px 14px;
+  border: 1px solid rgba(125, 94, 43, 0.12);
+  border-radius: 14px;
+  background: #fffaf1;
+}
+
+.novel-reading-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #292522;
+  line-height: 1.78;
+  font: inherit;
+}
+
 .scroll-panel {
   min-height: 0;
   display: flex;
@@ -746,6 +832,14 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .novel-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .novel-workspace {
+    grid-template-columns: 1fr;
+  }
+
   .export-layout {
     grid-template-columns: 1fr;
   }
@@ -757,13 +851,15 @@ button:disabled {
   }
 
   .task-grid,
-  .summary-grid,
-  .form-grid,
-  .selection-tools,
-  .subrule-fields,
-  .export-layout {
-    grid-template-columns: 1fr;
-  }
+    .summary-grid,
+    .form-grid,
+    .selection-tools,
+    .subrule-fields,
+    .export-layout,
+    .novel-layout,
+    .novel-workspace {
+      grid-template-columns: 1fr;
+    }
 
   .span-2 {
     grid-column: span 1;
